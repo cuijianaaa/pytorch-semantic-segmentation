@@ -5,7 +5,7 @@ import random
 import numpy as np
 import torchvision.transforms as standard_transforms
 import torchvision.utils as vutils
-from tensorboard import SummaryWriter
+from tensorboardX import SummaryWriter
 from torch import optim
 from torch.autograd import Variable
 from torch.backends import cudnn
@@ -20,21 +20,22 @@ from utils import check_mkdir, evaluate, AverageMeter, CrossEntropyLoss2d
 
 cudnn.benchmark = True
 
-ckpt_path = '../../ckpt'
+#ckpt_path = '../../ckpt'
+ckpt_path = '/media/cj/Elements/ckpt'
 exp_name = 'cityscapes-fcn8s'
 writer = SummaryWriter(os.path.join(ckpt_path, 'exp', exp_name))
 
 args = {
-    'train_batch_size': 16,
+    'train_batch_size': 1,#16
     'epoch_num': 500,
     'lr': 1e-10,
     'weight_decay': 5e-4,
     'input_size': (256, 512),
     'momentum': 0.95,
     'lr_patience': 100,  # large patience denotes fixed lr
-    'snapshot': '',  # empty string denotes no snapshot
+    'snapshot': 'epoch_7_loss_454494.25000_acc_0.49900_acc-cls_0.28269_mean-iu_0.12910_fwavacc_0.42524_lr_0.0000000001.pth',  # empty string denotes no snapshot
     'print_freq': 20,
-    'val_batch_size': 16,
+    'val_batch_size': 1,#16
     'val_save_to_img_file': False,
     'val_img_sample_rate': 0.05  # randomly sample some validation results to display
 }
@@ -48,7 +49,10 @@ def main():
         args['best_record'] = {'epoch': 0, 'val_loss': 1e10, 'acc': 0, 'acc_cls': 0, 'mean_iu': 0, 'fwavacc': 0}
     else:
         print('training resumes from ' + args['snapshot'])
-        net.load_state_dict(torch.load(os.path.join(ckpt_path, exp_name, args['snapshot'])))
+        print os.path.join(ckpt_path, exp_name, args['snapshot'])
+        aaa = torch.load(os.path.join(ckpt_path, exp_name, args['snapshot']))
+#       print 'aaa',aaa['state']
+        net.load_state_dict(aaa)
         split_snapshot = args['snapshot'].split('_')
         curr_epoch = int(split_snapshot[1]) + 1
         args['best_record'] = {'epoch': int(split_snapshot[1]), 'val_loss': float(split_snapshot[3]),

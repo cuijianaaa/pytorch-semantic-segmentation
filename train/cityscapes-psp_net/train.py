@@ -4,7 +4,7 @@ from math import sqrt
 
 import numpy as np
 import torchvision.transforms as standard_transforms
-from tensorboard import SummaryWriter
+from tensorboardX import SummaryWriter
 from torch import optim
 from torch.autograd import Variable
 from torch.utils.data import DataLoader
@@ -13,10 +13,11 @@ import utils.joint_transforms as joint_transforms
 import utils.transforms as extended_transforms
 from datasets import cityscapes
 from models import *
+from models.pspnet import PSPNet1
 from utils import check_mkdir, evaluate, AverageMeter, CrossEntropyLoss2d
 
-ckpt_path = '../../ckpt'
-exp_name = 'cityscapes (fine)-psp_net'
+ckpt_path = '/media/cj/Elements/ckpt'
+exp_name = 'cityscapes-psp_net'
 writer = SummaryWriter(os.path.join(ckpt_path, 'exp', exp_name))
 
 args = {
@@ -25,7 +26,7 @@ args = {
     'lr_decay': 0.9,
     'max_iter': 9e4,
     'longer_size': 2048,
-    'crop_size': 713,
+    'crop_size': 384,
     'stride_rate': 2 / 3.,
     'weight_decay': 1e-4,
     'momentum': 0.9,
@@ -39,8 +40,8 @@ args = {
 
 
 def main():
-    net = PSPNet(num_classes=cityscapes.num_classes)
-
+    #net = PSPNet(num_classes=cityscapes.num_classes)
+    net = (lambda: PSPNet1(sizes=(1, 2, 3, 6), psp_size=512, deep_features_size=256, backend='resnet18'))()
     if len(args['snapshot']) == 0:
         # net.load_state_dict(torch.load(os.path.join(ckpt_path, 'cityscapes (coarse)-psp_net', 'xx.pth')))
         curr_epoch = 1
@@ -110,7 +111,7 @@ def main():
 def train(train_loader, net, criterion, optimizer, curr_epoch, train_args, val_loader, visualize):
     while True:
         train_main_loss = AverageMeter()
-        train_aux_loss = AverageMeter()
+        #train_aux_loss = AverageMeter()
         curr_iter = (curr_epoch - 1) * len(train_loader)
         for i, data in enumerate(train_loader):
             optimizer.param_groups[0]['lr'] = 2 * train_args['lr'] * (1 - float(curr_iter) / train_args['max_iter']
@@ -132,27 +133,35 @@ def train(train_loader, net, criterion, optimizer, curr_epoch, train_args, val_l
 
                 optimizer.zero_grad()
                 outputs, aux = net(inputs_slice)
+                #print outputs.size()
+                #print gts_slice.size()
+                #print cityscapes.num_classes
                 assert outputs.size()[2:] == gts_slice.size()[1:]
                 assert outputs.size()[1] == cityscapes.num_classes
 
                 main_loss = criterion(outputs, gts_slice)
-                aux_loss = criterion(aux, gts_slice)
-                loss = main_loss + 0.4 * aux_loss
+                #aux_loss = criterion(aux, gts_slice)
+                loss = main_loss# + 0.4 * aux_loss
                 loss.backward()
                 optimizer.step()
 
                 train_main_loss.update(main_loss.data[0], slice_batch_pixel_size)
-                train_aux_loss.update(aux_loss.data[0], slice_batch_pixel_size)
+                #train_aux_loss.update(aux_loss.data[0], slice_batch_pixel_size)
 
             curr_iter += 1
             writer.add_scalar('train_main_loss', train_main_loss.avg, curr_iter)
-            writer.add_scalar('train_aux_loss', train_aux_loss.avg, curr_iter)
+            #writer.add_scalar('train_aux_loss', train_aux_loss.avg, curr_iter)
             writer.add_scalar('lr', optimizer.param_groups[1]['lr'], curr_iter)
 
+            #if (i + 1) % train_args['print_freq'] == 0:
+            #    print('[epoch %d], [iter %d / %d], [train main loss %.5f], [train aux loss %.5f]. [lr %.10f]' % (
+            #        curr_epoch, i + 1, len(train_loader), train_main_loss.avg, #train_aux_loss.avg,
+            #        optimizer.param_groups[1]['lr']))
             if (i + 1) % train_args['print_freq'] == 0:
-                print('[epoch %d], [iter %d / %d], [train main loss %.5f], [train aux loss %.5f]. [lr %.10f]' % (
-                    curr_epoch, i + 1, len(train_loader), train_main_loss.avg, train_aux_loss.avg,
+                print('[epoch %d], [iter %d / %d], [train main loss %.5f], [lr %.10f]' % (
+                    curr_epoch, i + 1, len(train_loader), train_main_loss.avg, #train_aux_loss.avg,
                     optimizer.param_groups[1]['lr']))
+
             if curr_iter >= train_args['max_iter']:
                 return
             if curr_iter % train_args['val_freq'] == 0:
