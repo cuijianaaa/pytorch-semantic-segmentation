@@ -3,6 +3,7 @@ from torch import nn
 from torch.nn import functional as F
 
 import extractors
+from utils import initialize_weights                                                                           
 
 
 class PSPModule(nn.Module):
@@ -42,9 +43,10 @@ class PSPUpsample(nn.Module):
 
 class PSPNet1(nn.Module):
     def __init__(self, n_classes=19, sizes=(1, 2, 3, 6), psp_size=2048, deep_features_size=1024, backend='resnet34',
-                 pretrained=False):
+                 pretrained=True):
         super(PSPNet1, self).__init__()
         self.feats = getattr(extractors, backend)(pretrained)
+        
         self.psp = PSPModule(psp_size, 1024, sizes)
         self.drop_1 = nn.Dropout2d(p=0.3)
 
@@ -64,7 +66,12 @@ class PSPNet1(nn.Module):
             nn.Linear(256, n_classes)
         )
 
+        self.aux_logits = nn.Conv2d(256, n_classes, kernel_size=1)
+        initialize_weights(self.aux_logits)
+
+
     def forward(self, x):
+        x_size = x.size()
         f, class_f = self.feats(x) 
         p = self.psp(f)
         p = self.drop_1(p)
@@ -77,7 +84,13 @@ class PSPNet1(nn.Module):
 
         p = self.up_3(p)
         p = self.drop_2(p)
+#        print 'class_f', class_f.size()
+        #auxiliary = F.adaptive_max_pool2d(input=class_f, output_size=(1, 1)).view(-1, class_f.size(1))
 
-        auxiliary = F.adaptive_max_pool2d(input=class_f, output_size=(1, 1)).view(-1, class_f.size(1))
+        #return self.final(p), self.classifier(auxiliary)
+        aux = self.aux_logits(class_f)
 
-        return self.final(p), self.classifier(auxiliary)
+        return self.final(p), F.upsample(aux, x_size[2:], mode='bilinear')
+
+
+
