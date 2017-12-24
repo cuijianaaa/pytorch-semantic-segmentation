@@ -3,7 +3,7 @@ import os
 from math import sqrt
 #os.environ["CUDA_VISIBLE_DEVICES"] = "3"
 import numpy as np
-import torchvision.transforms as standard_transforms
+import torchvision.transforms as standard_transforms 
 from tensorboardX import SummaryWriter
 from torch import optim
 from torch.autograd import Variable
@@ -17,7 +17,7 @@ from models.pspnet import PSPNet1
 from models.pspnet import PSPNetInstance
 from models.pspnet import InsNet
 from utils import check_mkdir, evaluate, AverageMeter, CrossEntropyLoss2d
-
+from loss import InstanceLoss
 ckpt_path = '../../ckpt'
 exp_name = 'cityscapes-psp_net'
 writer = SummaryWriter(os.path.join(ckpt_path, 'exp', exp_name))
@@ -90,7 +90,7 @@ def main():
     val_loader = DataLoader(val_set, batch_size=args['val_batch_size'], num_workers=8, shuffle=False)
 
     criterion = CrossEntropyLoss2d(size_average=True, ignore_index=cityscapes.ignore_label).cuda()
-
+    criterion_ins = InstanceLoss(class_num = 19, code_bit = 8).cuda()
     optimizer = optim.SGD([
         {'params': [param for name, param in net.named_parameters() if name[-4:] == 'bias'],
          'lr': 2 * args['lr']},
@@ -107,10 +107,10 @@ def main():
     check_mkdir(os.path.join(ckpt_path, exp_name))
     open(os.path.join(ckpt_path, exp_name, str(datetime.datetime.now()) + '.txt'), 'w').write(str(args) + '\n\n')
 
-    train(train_loader, net, criterion, optimizer, curr_epoch, args, val_loader, visualize)
+    train(train_loader, net, criterion, criterion_ins, optimizer, curr_epoch, args, val_loader, visualize)
 
 
-def train(train_loader, net, criterion, optimizer, curr_epoch, train_args, val_loader, visualize):
+def train(train_loader, net, criterion, criterion_ins, optimizer, curr_epoch, train_args, val_loader, visualize):
     while True:
         train_main_loss = AverageMeter()
         train_aux_loss = AverageMeter()
@@ -122,23 +122,27 @@ def train(train_loader, net, criterion, optimizer, curr_epoch, train_args, val_l
                                                                   ) ** train_args['lr_decay']
 
             inputs, gts, ins, _ = data
-            #print gts
-            #print ins
+            #print 'img size ',inputs.size()
+            #print 'class_gt size ',gts.size()
+            #print 'ins gt size ',ins.size()
             assert len(inputs.size()) == 5 and len(gts.size()) == 4
             inputs.transpose_(0, 1)
             gts.transpose_(0, 1)
-
+            ins.transpose_(0, 1)
             assert inputs.size()[3:] == gts.size()[2:]
             slice_batch_pixel_size = inputs.size(1) * inputs.size(3) * inputs.size(4)
 
-            for inputs_slice, gts_slice in zip(inputs, gts):
+            for inputs_slice, gts_slice, ins_slice in zip(inputs, gts, ins):
                 inputs_slice = Variable(inputs_slice).cuda()
+                #gts_class = gts_slice
                 gts_slice = Variable(gts_slice).cuda()
-
+                ins_slice = Variable(ins_slice).cuda()
+                #print 'in size ', inputs_slice.size()
+                #print 'in gts size ', gts_slice.size()
                 optimizer.zero_grad()
                 outputs, ins_code, aux = net(inputs_slice)
-                print ins_code
-                print ins_code.size()            
+                #print ins_code
+                #print 'ins_code size ',ins_code.size()            
                 #print 'outputs ',outputs.size()
                 #print 'aux ', aux.size()
                 #print 'gt ',gts_slice.size()
@@ -150,6 +154,7 @@ def train(train_loader, net, criterion, optimizer, curr_epoch, train_args, val_l
 
                 main_loss = criterion(outputs, gts_slice)
                 aux_loss = criterion(aux, gts_slice)
+                ins_loss = criterion_ins(ins_code, ins_slice.unsqueeze(dim = 1), gts_slice.unsqueeze(dim = 1))
                 loss = main_loss + 0.4 * aux_loss
                 loss.backward()
                 optimizer.step()

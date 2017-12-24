@@ -156,6 +156,7 @@ class Instance(data.Dataset):
             img, mask_class, mask_ins = self.joint_transform(img, mask_class, mask_ins)
         if self.sliding_crop is not None:
             img_slices, mask_class_slices, mask_ins_slices, slices_info = self.sliding_crop(img, mask_class, mask_ins)
+            #print img_slices
             if self.transform is not None:
                 img_slices = [self.transform(e) for e in img_slices]
             if self.target_transform is not None:
@@ -172,6 +173,9 @@ class Instance(data.Dataset):
                 #    print i,' size ', e
                 #    i = i + 1
             img, mask, ins = torch.stack(img_slices, 0), torch.stack(mask_class_slices, 0), torch.stack(mask_ins_slices, 0)
+            #print 'img ', img.size()
+            #print 'mask ', mask.size()
+            #print 'ins ', ins.size()
             return img, mask, ins, torch.LongTensor(slices_info)
         else:
             if self.transform is not None:
