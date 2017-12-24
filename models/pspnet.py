@@ -4,7 +4,7 @@ from torch.nn import functional as F
 
 import extractors
 from utils import initialize_weights                                                                           
-
+import os
 
 class PSPModule(nn.Module):
     def __init__(self, features, out_features=1024, sizes=(1, 2, 3, 6)):
@@ -93,4 +93,71 @@ class PSPNet1(nn.Module):
         return self.final(p), F.upsample(aux, x_size[2:], mode='bilinear')
 
 
+class PSPNetInstance(nn.Module):
+    def __init__(self, n_classes=19, ins_bit = 8, sizes=(1, 2, 3, 6), psp_size=2048, deep_features_size=1024, backend='resnet34',
+                 pretrained=True):
+        super(PSPNetInstance, self).__init__()
+        self.feats = getattr(extractors, backend)(pretrained)
+        
+        self.psp = PSPModule(psp_size, 1024, sizes)
+        self.drop_1 = nn.Dropout2d(p=0.3)
 
+        self.up_1 = PSPUpsample(1024, 256)
+        self.up_2 = PSPUpsample(256, 64)
+        self.up_3 = PSPUpsample(64, 64)
+
+        self.drop_2 = nn.Dropout2d(p=0.15)
+        self.final = nn.Sequential(
+            nn.Conv2d(64, n_classes, kernel_size=1),
+            nn.LogSoftmax()
+        )
+        #self.ins = nn.Sequential(
+        #    nn.Conv2d(64, ins_bit, kernel_size=1),
+        #    nn.Sigmoid()
+        #)
+
+        self.classifier = nn.Sequential(
+            nn.Linear(deep_features_size, 256),
+            nn.ReLU(),
+            nn.Linear(256, n_classes)
+        )
+        self.aux_logits = nn.Conv2d(256, n_classes, kernel_size=1)
+        initialize_weights(self.aux_logits)
+
+
+    def forward(self, x):
+        x_size = x.size()
+        f, class_f = self.feats(x) 
+        p = self.psp(f)
+        p = self.drop_1(p)
+
+        p = self.up_1(p)
+        p = self.drop_2(p)
+
+        p = self.up_2(p)
+        p = self.drop_2(p)
+
+        p = self.up_3(p)
+        p = self.drop_2(p)
+
+        aux = self.aux_logits(class_f)
+
+        return self.final(p), p, F.upsample(aux, x_size[2:], mode='bilinear')
+
+
+class InsNet(nn.Module):
+    def __init__(self, ins_bit = 8, pretrained=True):
+        super(InsNet, self).__init__()
+        self.psp = (lambda: PSPNetInstance(sizes=(1, 2, 3, 6), psp_size=512, deep_features_size=256, backend='resnet18'))() 
+        self.psp.load_state_dict(torch.load(os.path.join('/home/cj/pytorch/pytorch-parsing/ckpt/cityscapes-psp_net/epoch_25_iter_0_loss_0.27997_acc_0.91866_acc-cls_0.62765_mean-iu_0.52001_fwavacc_0.85947_lr_0.0028705863.pth')))
+        self.ins = nn.Sequential(
+            nn.Conv2d(64, ins_bit, kernel_size=1),
+            nn.Sigmoid()
+        )
+        initialize_weights(self.ins)
+
+
+    def forward(self, x):
+        final_layer_output, pre_layer_output, aux = self.psp(x) 
+        ins_code = self.ins(pre_layer_output)  
+        return final_layer_output, ins_code, aux 

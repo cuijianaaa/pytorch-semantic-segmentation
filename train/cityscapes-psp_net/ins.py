@@ -14,6 +14,8 @@ import utils.transforms as extended_transforms
 from datasets import cityscapes
 from models import *
 from models.pspnet import PSPNet1
+from models.pspnet import PSPNetInstance
+from models.pspnet import InsNet
 from utils import check_mkdir, evaluate, AverageMeter, CrossEntropyLoss2d
 
 ckpt_path = '../../ckpt'
@@ -42,7 +44,8 @@ args = {
 
 def main():
     #net = PSPNet(num_classes=cityscapes.num_classes)
-    net = (lambda: PSPNet1(sizes=(1, 2, 3, 6), psp_size=512, deep_features_size=256, backend='resnet18'))()
+    #net = (lambda: PSPNetInstance(sizes=(1, 2, 3, 6), psp_size=512, deep_features_size=256, backend='resnet18'))()
+    net = (lambda: InsNet())()
     if len(args['snapshot']) == 0:
         # net.load_state_dict(torch.load(os.path.join(ckpt_path, 'cityscapes (coarse)-psp_net', 'xx.pth')))
         curr_epoch = 1
@@ -119,6 +122,8 @@ def train(train_loader, net, criterion, optimizer, curr_epoch, train_args, val_l
                                                                   ) ** train_args['lr_decay']
 
             inputs, gts, ins, _ = data
+            #print gts
+            #print ins
             assert len(inputs.size()) == 5 and len(gts.size()) == 4
             inputs.transpose_(0, 1)
             gts.transpose_(0, 1)
@@ -131,7 +136,9 @@ def train(train_loader, net, criterion, optimizer, curr_epoch, train_args, val_l
                 gts_slice = Variable(gts_slice).cuda()
 
                 optimizer.zero_grad()
-                outputs, aux = net(inputs_slice)
+                outputs, ins_code, aux = net(inputs_slice)
+                print ins_code
+                print ins_code.size()            
                 #print 'outputs ',outputs.size()
                 #print 'aux ', aux.size()
                 #print 'gt ',gts_slice.size()
@@ -192,35 +199,18 @@ def validate(val_loader, net, criterion, optimizer, epoch, iter_num, train_args,
         output = torch.zeros(cityscapes.num_classes, args['longer_size'] / 2, args['longer_size']).cuda()
 
         slice_batch_pixel_size = input.size(1) * input.size(3) * input.size(4)
-        #print 'input, gt, slices_info'
-        #print input.size()
-        #print gt.size()
-        #print slices_info.size()
+
         for input_slice, gt_slice, info in zip(input, gt, slices_info):
             input_slice = Variable(input_slice).cuda()
             gt_slice = Variable(gt_slice).cuda()
 
-            output_slice, _  = net(input_slice)
+            output_slice, ins_slice,  _  = net(input_slice)
             assert output_slice.size()[2:] == gt_slice.size()[1:]
             assert output_slice.size()[1] == cityscapes.num_classes
-            #print 'output.size ', output.size()
-            #print 'output_slice.size ', output_slice.size()
-            #print 'info0 ', info[0]
-            #print 'info1 ', info[1]
-            #print 'info2 ', info[2]
-            #print 'info3 ', info[3]
-            #print 'info4 ', info[4]
-            #print 'info5 ', info[5]
-            #print 'info ', info
-            #aaa = np.array(range(2000 * 2000)).reshape((2000,2000))
-            #ccc = aaa[info[0]: info[1]]
-            #print 'ccc = ', ccc
             if(len(info.size())<2):
                 info = info.view(1,6)
 
             for i in range(info.size()[0]):
-                #print output.size()
-                #print info.size()
                 output[:, info[i,0]: info[i,1], info[i,2]: info[i,3]] += output_slice[0, :, :info[i,4], :info[i,5]].data
                 output[:, info[i,0]: info[i,1], info[i,2]: info[i,3]] += output_slice[0, :, :info[i,4], :info[i,5]].data
                 gts_all[vi, info[i,0]: info[i,1], info[i,2]: info[i,3]] += gt_slice[0, :info[i,4], :info[i,5]].data.cpu().numpy()

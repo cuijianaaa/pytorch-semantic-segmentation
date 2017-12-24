@@ -336,6 +336,8 @@ def resnet18(pretrained=True):
         #model.load_state_dict(torch.load("/home/hdd/pytorch/pretrained/ResNet/resnet18-5c106cde.pth"))
         #load_weights_sequential(model, model_zoo.load_url(model_urls['resnet18']))
         load_weights_sequential(model, torch.load("/home/cj/pytorch/pretrained/ResNet/resnet18-5c106cde.pth"))
+        #print [k for k,v in torch.load("/home/cj/pytorch/pretrained/ResNet/resnet18-5c106cde.pth").items()]
+        
     return model
 
 
