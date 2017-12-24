@@ -72,7 +72,6 @@ class CityScapes(data.Dataset):
         img_path, mask_path = self.imgs[index]
         img, mask = Image.open(img_path).convert('RGB'), Image.open(mask_path)
         mask = np.array(mask)
-        print mask.dtype
         mask_copy = mask.copy()
         for k, v in self.id_to_trainid.items():
             mask_copy[mask == k] = v
@@ -117,7 +116,7 @@ def make_instance(mode):
 
 class Instance(data.Dataset):
     def __init__(self, mode, joint_transform=None, sliding_crop=None, transform=None, target_transform=None):
-        self.imgs = make_dataset(mode)
+        self.imgs = make_instance(mode)
         if len(self.imgs) == 0:
             raise RuntimeError('Found 0 images, please check the data set')
         self.mode = mode
@@ -137,27 +136,50 @@ class Instance(data.Dataset):
         img, mask = Image.open(img_path).convert('RGB'), Image.open(mask_path)
 
         mask = np.array(mask)
-        mask_copy = mask.copy()
+        mask_class = mask / 1000
+        mask_class = mask_class.astype(np.uint8) 
+        mask_ins = mask % 1000
+        mask_ins = mask_ins.astype(np.uint8)
+        #print 'class max', np.max(mask_class)
+        #print  'class min', np.min(mask_class)
+        #print 'ins max', np.max(mask_instance)
+        #print 'ins min', np.min(mask_instance)
+        #print mask.dtype 
+        mask_class_copy = mask_class.copy()
+       
         for k, v in self.id_to_trainid.items():
-            mask_copy[mask == k] = v
-        mask = Image.fromarray(mask_copy.astype(np.uint8))
+            mask_class_copy[mask_class == k] = v
+        mask_class = Image.fromarray(mask_class_copy)
+        mask_ins = Image.fromarray(mask_ins)
 
         if self.joint_transform is not None:
-            img, mask = self.joint_transform(img, mask)
+            img, mask_class, mask_ins = self.joint_transform(img, mask_class, mask_ins)
         if self.sliding_crop is not None:
-            img_slices, mask_slices, slices_info = self.sliding_crop(img, mask)
+            img_slices, mask_class_slices, mask_ins_slices, slices_info = self.sliding_crop(img, mask_class, mask_ins)
             if self.transform is not None:
                 img_slices = [self.transform(e) for e in img_slices]
             if self.target_transform is not None:
-                mask_slices = [self.target_transform(e) for e in mask_slices]
-            img, mask = torch.stack(img_slices, 0), torch.stack(mask_slices, 0)
-            return img, mask, torch.LongTensor(slices_info)
+                mask_class_slices = [self.target_transform(e) for e in mask_class_slices]
+                #i = 0
+                #print 'before'
+                #for e in mask_class_slices:
+                #    print i,' size ', e
+                #    i = i + 1
+                mask_ins_slices = [self.target_transform(e) for e in mask_ins_slices]
+                #i = 0
+                #print 'end'
+                #for e in mask_ins_slices:
+                #    print i,' size ', e
+                #    i = i + 1
+            img, mask, ins = torch.stack(img_slices, 0), torch.stack(mask_class_slices, 0), torch.stack(mask_ins_slices, 0)
+            return img, mask, ins, torch.LongTensor(slices_info)
         else:
             if self.transform is not None:
                 img = self.transform(img)
             if self.target_transform is not None:
-                mask = self.target_transform(mask)
-            return img, mask
+                mask_class = self.target_transform(mask_class)
+                mask_ins = self.target_transform(mask_ins)
+            return img, mask, ins
 
     def __len__(self):
         return len(self.imgs)
