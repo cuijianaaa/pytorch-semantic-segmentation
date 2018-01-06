@@ -149,7 +149,7 @@ class InsNet(nn.Module):
     def __init__(self, ins_bit = 8, pretrained=True):
         super(InsNet, self).__init__()
         self.psp = (lambda: PSPNetInstance(sizes=(1, 2, 3, 6), psp_size=512, deep_features_size=256, backend='resnet18'))() 
-        self.psp.load_state_dict(torch.load(os.path.join('/home/cj/pytorch/pytorch-parsing/ckpt/cityscapes-psp_net/epoch_25_iter_0_loss_0.27997_acc_0.91866_acc-cls_0.62765_mean-iu_0.52001_fwavacc_0.85947_lr_0.0028705863.pth')))
+        self.psp.load_state_dict(torch.load(os.path.join('/home/cj/pytorch/pytorch-parsing/ckpt/cityscapes-psp_net/epoch_71_iter_0_loss_0.21447_acc_0.93891_acc-cls_0.72612_mean-iu_0.63503_fwavacc_0.89032_lr_0.0015954517.pth')))
         self.ins = nn.Sequential(
             nn.Conv2d(64, ins_bit, kernel_size=1),
             nn.Sigmoid()

@@ -19,7 +19,7 @@ from models.pspnet import InsNet
 from utils import check_mkdir, evaluate, AverageMeter, CrossEntropyLoss2d
 from loss import InstanceLoss
 ckpt_path = '../../ckpt'
-exp_name = 'cityscapes-psp_net'
+exp_name = 'ins_train'
 writer = SummaryWriter(os.path.join(ckpt_path, 'exp', exp_name))
 
 args = {
@@ -111,9 +111,12 @@ def main():
 
 
 def train(train_loader, net, criterion, criterion_ins, optimizer, curr_epoch, train_args, val_loader, visualize):
+    nnn = 0
+    min_loss = 100;
     while True:
         train_main_loss = AverageMeter()
         train_aux_loss = AverageMeter()
+        train_ins_loss = AverageMeter()
         curr_iter = (curr_epoch - 1) * len(train_loader)
         for i, data in enumerate(train_loader):
             optimizer.param_groups[0]['lr'] = 2 * train_args['lr'] * (1 - float(curr_iter) / train_args['max_iter']
@@ -122,6 +125,8 @@ def train(train_loader, net, criterion, criterion_ins, optimizer, curr_epoch, tr
                                                                   ) ** train_args['lr_decay']
 
             inputs, gts, ins, _ = data
+            print nnn
+            nnn = nnn + 1
             #print 'img size ',inputs.size()
             #print 'class_gt size ',gts.size()
             #print 'ins gt size ',ins.size()
@@ -154,42 +159,64 @@ def train(train_loader, net, criterion, criterion_ins, optimizer, curr_epoch, tr
 
                 main_loss = criterion(outputs, gts_slice)
                 aux_loss = criterion(aux, gts_slice)
-                ins_loss = criterion_ins(ins_code, ins_slice.unsqueeze(dim = 1), gts_slice.unsqueeze(dim = 1))
-                loss = main_loss + 0.4 * aux_loss
+                ins_loss = 100 * criterion_ins(ins_code, ins_slice.unsqueeze(dim = 1), gts_slice.unsqueeze(dim = 1))
+                loss = main_loss + 0.4 * aux_loss + ins_loss
                 loss.backward()
                 optimizer.step()
 
                 train_main_loss.update(main_loss.data[0], slice_batch_pixel_size)
                 train_aux_loss.update(aux_loss.data[0], slice_batch_pixel_size)
-
+                train_ins_loss.update(ins_loss.data[0], slice_batch_pixel_size)
             curr_iter += 1
             writer.add_scalar('train_main_loss', train_main_loss.avg, curr_iter)
             writer.add_scalar('train_aux_loss', train_aux_loss.avg, curr_iter)
+            writer.add_scalar('train_ins_loss', train_ins_loss.avg, curr_iter)
             writer.add_scalar('lr', optimizer.param_groups[1]['lr'], curr_iter)
 
-            if (i + 1) % train_args['print_freq'] == 0:
-                print('[epoch %d], [iter %d / %d], [train main loss %.5f], [train aux loss %.5f]. [lr %.10f]' % (
-                    curr_epoch, i + 1, len(train_loader), train_main_loss.avg, train_aux_loss.avg,
+            #if (i + 1) % train_args['print_freq'] == 0:
+            print('[epoch %d], [iter %d / %d], [train main loss %.5f], [train ins loss %.5f], [train aux loss %.5f], [lr %.10f]' % (
+                    curr_epoch, i + 1, len(train_loader), train_main_loss.avg, train_ins_loss.avg, train_aux_loss.avg,
                     optimizer.param_groups[1]['lr']))
+            #print('[epoch %d], [iter %d / %d], [train main loss %.5f], [train aux loss %.5f], [lr %.10f]' % (
+            #        curr_epoch, i + 1, len(train_loader), train_main_loss.avg, train_aux_loss.avg,
+            #        optimizer.param_groups[1]['lr']))
             #if (i + 1) % train_args['print_freq'] == 0:
             #    print('[epoch %d], [iter %d / %d], [train main loss %.5f], [lr %.10f]' % (
             #        curr_epoch, i + 1, len(train_loader), train_main_loss.avg, #train_aux_loss.avg,
             #        optimizer.param_groups[1]['lr']))
 
+
+
+
+
             if curr_iter >= train_args['max_iter']:
                 return
             #if curr_iter % train_args['val_freq'] == 0:
             #validate(val_loader, net, criterion, optimizer, curr_epoch, i + 1, train_args, visualize)
-        validate(val_loader, net, criterion, optimizer, curr_epoch, 0, train_args, visualize)
+            #validate(val_loader, net, criterion, criterion_ins, optimizer, curr_epoch, 0, train_args, visualize)
+
+
+
+        if (train_main_loss.avg + train_ins_loss.avg) < min_loss:
+        #if train_main_loss.avg < min_loss:
+            min_loss = train_main_loss.avg + train_ins_loss.avg
+            #min_loss = train_main_loss.avg
+            snapshot_name = 'epoch_%d_loss_%.5f_ins_%.5f' % (
+                curr_epoch, train_main_loss.avg, train_ins_loss.avg)
+            #snapshot_name = 'epoch_%d_loss_%.5f' % (
+            #    curr_epoch, train_main_loss.avg)
+            torch.save(net.state_dict(), os.path.join(ckpt_path, exp_name, snapshot_name + '.pth'))
+            torch.save(optimizer.state_dict(), os.path.join(ckpt_path, exp_name, 'opt_' + snapshot_name + '.pth'))
+
         curr_epoch += 1
 
 
-def validate(val_loader, net, criterion, optimizer, epoch, iter_num, train_args, visualize):
+def validate(val_loader, net, criterion, criterion_ins, optimizer, epoch, iter_num, train_args, visualize):
     # the following code is written assuming that batch size is 1
     net.eval()
 
     val_loss = AverageMeter()
-
+    val_ins_loss = AverageMeter()
     gts_all = np.zeros((len(val_loader), args['longer_size'] / 2, args['longer_size']), dtype=int)
     predictions_all = np.zeros((len(val_loader), args['longer_size'] / 2, args['longer_size']), dtype=int)
     for vi, data in enumerate(val_loader):
@@ -197,6 +224,7 @@ def validate(val_loader, net, criterion, optimizer, epoch, iter_num, train_args,
         assert len(input.size()) == 5 and len(gt.size()) == 4 and len(slices_info.size()) == 3
         input.transpose_(0, 1)
         gt.transpose_(0, 1)
+        ins.transpose_(0, 1)
         slices_info.squeeze_(0)
         assert input.size()[3:] == gt.size()[2:]
 
@@ -205,24 +233,24 @@ def validate(val_loader, net, criterion, optimizer, epoch, iter_num, train_args,
 
         slice_batch_pixel_size = input.size(1) * input.size(3) * input.size(4)
 
-        for input_slice, gt_slice, info in zip(input, gt, slices_info):
+        for input_slice, gt_slice, ins_slice, info in zip(input, gt, ins, slices_info):
             input_slice = Variable(input_slice).cuda()
             gt_slice = Variable(gt_slice).cuda()
-
-            output_slice, ins_slice,  _  = net(input_slice)
+            ins_slice = Variable(ins_slice).cuda()
+            output_slice, ins_code,  _  = net(input_slice)
             assert output_slice.size()[2:] == gt_slice.size()[1:]
             assert output_slice.size()[1] == cityscapes.num_classes
-            if(len(info.size())<2):
-                info = info.view(1,6)
+            #if(len(info.size())<2):
+            #    info = info.view(1,6)
 
-            for i in range(info.size()[0]):
-                output[:, info[i,0]: info[i,1], info[i,2]: info[i,3]] += output_slice[0, :, :info[i,4], :info[i,5]].data
-                output[:, info[i,0]: info[i,1], info[i,2]: info[i,3]] += output_slice[0, :, :info[i,4], :info[i,5]].data
-                gts_all[vi, info[i,0]: info[i,1], info[i,2]: info[i,3]] += gt_slice[0, :info[i,4], :info[i,5]].data.cpu().numpy()
-                count[info[i,0]: info[i,1], info[i,2]: info[i,3]] += 1
+            #for i in range(info.size()[0]):
+            output[:, info[0]: info[1], info[2]: info[3]] += output_slice[0, :, :info[4], :info[5]].data
+            output[:, info[0]: info[1], info[2]: info[3]] += output_slice[0, :, :info[4], :info[5]].data
+            gts_all[vi, info[0]: info[1], info[2]: info[3]] += gt_slice[0, :info[4], :info[5]].data.cpu().numpy()
+            count[info[0]: info[1], info[2]: info[3]] += 1
 
             val_loss.update(criterion(output_slice, gt_slice).data[0], slice_batch_pixel_size)
-
+            val_ins_loss.update(criterion_ins(ins_code, ins_slice.unsqueeze(dim = 1), gt_slice.unsqueeze(dim = 1)))
         output /= count
         gts_all[vi, :, :] /= count.cpu().numpy().astype(int)
         predictions_all[vi, :, :] = output.max(0)[1].squeeze_(0).cpu().numpy()
@@ -231,14 +259,15 @@ def validate(val_loader, net, criterion, optimizer, epoch, iter_num, train_args,
     acc, acc_cls, mean_iu, fwavacc = evaluate(predictions_all, gts_all, cityscapes.num_classes)
     if val_loss.avg < train_args['best_record']['val_loss']:
         train_args['best_record']['val_loss'] = val_loss.avg
+        train_args['best_recore']['val_ins_loss'] = val_ins_loss.avg
         train_args['best_record']['epoch'] = epoch
         train_args['best_record']['iter'] = iter_num
         train_args['best_record']['acc'] = acc
         train_args['best_record']['acc_cls'] = acc_cls
         train_args['best_record']['mean_iu'] = mean_iu
         train_args['best_record']['fwavacc'] = fwavacc
-    snapshot_name = 'epoch_%d_iter_%d_loss_%.5f_acc_%.5f_acc-cls_%.5f_mean-iu_%.5f_fwavacc_%.5f_lr_%.10f' % (
-        epoch, iter_num, val_loss.avg, acc, acc_cls, mean_iu, fwavacc, optimizer.param_groups[1]['lr'])
+    snapshot_name = 'epoch_%d_iter_%d_loss_%.5f_ins_%.5f_acc_%.5f_acc-cls_%.5f_mean-iu_%.5f_fwavacc_%.5f_lr_%.10f' % (
+        epoch, iter_num, val_loss.avg, val_ins_loss.avg, acc, acc_cls, mean_iu, fwavacc, optimizer.param_groups[1]['lr'])
     torch.save(net.state_dict(), os.path.join(ckpt_path, exp_name, snapshot_name + '.pth'))
     torch.save(optimizer.state_dict(), os.path.join(ckpt_path, exp_name, 'opt_' + snapshot_name + '.pth'))
 
@@ -261,11 +290,12 @@ def validate(val_loader, net, criterion, optimizer, epoch, iter_num, train_args,
         writer.add_image(snapshot_name, val_visual)
 
     print('-----------------------------------------------------------------------------------------------------------')
-    print('[epoch %d], [iter %d], [val loss %.5f], [acc %.5f], [acc_cls %.5f], [mean_iu %.5f], [fwavacc %.5f]' % (
-        epoch, iter_num, val_loss.avg, acc, acc_cls, mean_iu, fwavacc))
+    print('[epoch %d], [iter %d], [val loss %.5f], [val ins loss %.5f], [acc %.5f], [acc_cls %.5f], [mean_iu %.5f], [fwavacc %.5f]' % (
+        epoch, iter_num, val_loss.avg, val_ins_loss.avg, acc, acc_cls, mean_iu, fwavacc))
 
-    print('best record: [val loss %.5f], [acc %.5f], [acc_cls %.5f], [mean_iu %.5f], [fwavacc %.5f], [epoch %d], '
-          '[iter %d]' % (train_args['best_record']['val_loss'], train_args['best_record']['acc'],
+    print('best record: [val loss %.5f], [val ins loss %.5f], [acc %.5f], [acc_cls %.5f], [mean_iu %.5f], [fwavacc %.5f], [epoch %d], '
+          '[iter %d]' % (train_args['best_record']['val_loss'], train_args['best_record']['val_ins_loss'],
+                        train_args['best_record']['acc'],
                          train_args['best_record']['acc_cls'], train_args['best_record']['mean_iu'],
                          train_args['best_record']['fwavacc'], train_args['best_record']['epoch'],
                          train_args['best_record']['iter']))
@@ -273,6 +303,7 @@ def validate(val_loader, net, criterion, optimizer, epoch, iter_num, train_args,
     print('-----------------------------------------------------------------------------------------------------------')
 
     writer.add_scalar('val_loss', val_loss.avg, epoch)
+    writer.add_scalar('val_ins_loss', val_ins_loss.avg, epoch)
     writer.add_scalar('acc', acc, epoch)
     writer.add_scalar('acc_cls', acc_cls, epoch)
     writer.add_scalar('mean_iu', mean_iu, epoch)
