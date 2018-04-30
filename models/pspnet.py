@@ -127,7 +127,8 @@ class PSPNetInstance(nn.Module):
 
     def forward(self, x):
         x_size = x.size()
-        f, class_f = self.feats(x) 
+        f, class_f = self.feats(x)
+        print("feature size ", f.size()) 
         p = self.psp(f)
         p = self.drop_1(p)
 
@@ -161,3 +162,27 @@ class InsNet(nn.Module):
         final_layer_output, pre_layer_output, aux = self.psp(x) 
         ins_code = self.ins(pre_layer_output)  
         return final_layer_output, ins_code, aux 
+
+
+class FCNet(nn.Module):
+    def __init__(self, n_classes=19):
+        super(FCNet, self).__init__()
+        self.n_classes = n_classes
+        self.fc1 = nn.Sequential(
+            nn.Linear(256*256*3, 20),
+            nn.ReLU()
+        )
+        self.fc2 = nn.Sequential(
+            nn.Linear(20, 19 * 256 * 256)
+        )
+        initialize_weights(self.fc1)
+        initialize_weights(self.fc2)
+
+
+    def forward(self, x):
+        print("x size ", x.size())
+        x = x.view(x.size()[0], -1)
+        x = self.fc1(x)
+        x = self.fc2(x)
+        x = x.view(x.size()[0], self.n_classes, 256, 256)
+        return x

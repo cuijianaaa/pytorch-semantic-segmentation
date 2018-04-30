@@ -179,6 +179,15 @@ class ScaleInstance(object):
             ow = int(self.size * w / h)
             return img.resize((ow, oh), Image.BILINEAR), mask.resize((ow, oh), Image.NEAREST), ins.resize((ow, oh), Image.NEAREST)
 
+class ResizeInstance(object):
+    def __init__(self, size):
+        self.size = size
+
+    def __call__(self, img, mask, ins):
+        assert(img.size == mask.size)
+        assert(mask.size == ins.size)
+        wh = self.size
+        return img.resize((wh, wh), Image.BILINEAR), mask.resize((wh, wh), Image.NEAREST), ins.resize((wh, wh), Image.NEAREST)
 
 class RandomSizedCrop(object):
     def __init__(self, size):

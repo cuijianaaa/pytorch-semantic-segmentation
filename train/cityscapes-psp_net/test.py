@@ -38,7 +38,7 @@ args = {
     'stride_rate': 2 / 3.,
     'weight_decay': 1e-4,
     'momentum': 0.9,
-    'snapshot': 'epoch_1965_loss_0.00935_ins_0.00098.pth',#'epoch_1940_loss_0.00001_ins_0.00125.pth',
+    'snapshot': 'epoch_98_loss_4.82587_ins_0.04282.pth',
     'print_freq': 10,
     'val_save_to_img_file': True,
     'val_img_sample_rate': 0.01,  # randomly sample some validation results to display,
